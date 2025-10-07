@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Signature Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .file-input-label {
+            display: block;
+            padding: 1rem;
+            border: 2px dashed #D1D5DB;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            text-align: center;
+        }
+        .file-input-label:hover {
+            border-color: #3B82F6;
+            background-color: #F9FAFB;
+        }
+        #pdf-name, #img-name {
+            font-weight: 500;
+            color: #3B82F6;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+
+    <div class="bg-white p-8 rounded-2xl shadow-lg w-full max-w-lg mx-4">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-800">PDF Signature Tool</h1>
+            <p class="text-gray-500 mt-2">Add your signature to any PDF in the bottom-right corner.</p>
+        </div>
+
+        <!-- Step 1: Upload PDF -->
+        <div class="mb-6">
+            <h2 class="text-lg font-semibold text-gray-700 mb-2">Step 1: Upload PDF</h2>
+            <label for="pdf-upload" class="file-input-label">
+                <span class="text-gray-600">Click to upload a PDF file</span>
+                <span id="pdf-name" class="mt-1 block"></span>
+            </label>
+            <input type="file" id="pdf-upload" class="hidden" accept=".pdf">
+        </div>
+
+        <!-- Step 2: Upload Signature -->
+        <div class="mb-8">
+            <h2 class="text-lg font-semibold text-gray-700 mb-2">Step 2: Upload Signature Image</h2>
+             <label for="img-upload" class="file-input-label">
+                <span class="text-gray-600">Click to upload an image (JPG, PNG)</span>
+                <span id="img-name" class="mt-1 block"></span>
+            </label>
+            <input type="file" id="img-upload" class="hidden" accept="image/jpeg, image/png">
+            <div class="mt-4 flex items-center justify-center">
+                <input type="checkbox" id="remove-bg-check" class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                <label for="remove-bg-check" class="ml-2 block text-sm text-gray-700">Remove white background from signature</label>
+            </div>
+        </div>
+
+        <!-- Step 3: Add Signature Button -->
+        <button id="add-signature-btn" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed">
+            Add Signature & Download
+        </button>
+
+        <!-- Message Area -->
+        <p id="status" class="text-center text-gray-600 mt-4 h-5"></p>
+
+    </div>
+
+    <script>
+        const { PDFDocument } = PDFLib;
+
+        const pdfUpload = document.getElementById('pdf-upload');
+        const imgUpload = document.getElementById('img-upload');
+        const addSignatureBtn = document.getElementById('add-signature-btn');
+        const pdfNameEl = document.getElementById('pdf-name');
+        const imgNameEl = document.getElementById('img-name');
+        const statusEl = document.getElementById('status');
+        
+        let pdfFile = null;
+        let imgFile = null;
+
+        function updateButtonState() {
+             addSignatureBtn.disabled = !(pdfFile && imgFile);
+        }
+
+        pdfUpload.addEventListener('change', (e) => {
+            pdfFile = e.target.files[0];
+            if (pdfFile) {
+                pdfNameEl.textContent = `Selected: ${pdfFile.name}`;
+            } else {
+                 pdfNameEl.textContent = '';
+            }
+            updateButtonState();
+        });
+
+        imgUpload.addEventListener('change', (e) => {
+            imgFile = e.target.files[0];
+            if (imgFile) {
+                imgNameEl.textContent = `Selected: ${imgFile.name}`;
+            } else {
+                imgNameEl.textContent = '';
+            }
+            updateButtonState();
+        });
+        
+        async function removeWhiteBackground(imageFile) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    const img = new Image();
+                    img.onload = function() {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+
+                        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                        const data = imageData.data;
+
+                        // Tunable parameters for background detection and feathering
+                        const luminanceThreshold = 0.92; // Consider pixels with high luminance as background candidates
+                        const saturationThreshold = 0.18; // Low saturation likely means near-white background
+                        const featherStart = 0.88; // Start feathering slightly before hard cutoff
+                        const featherEnd = 0.98;   // Fully transparent beyond this whiteness
+
+                        // Utility: compute luminance (perceptual) and saturation quickly
+                        function computeLuminance(r, g, b) {
+                            // sRGB luminance approximation
+                            return (0.2126 * (r / 255)) + (0.7152 * (g / 255)) + (0.0722 * (b / 255));
+                        }
+                        function computeSaturation(r, g, b) {
+                            const rn = r / 255, gn = g / 255, bn = b / 255;
+                            const maxc = Math.max(rn, gn, bn);
+                            const minc = Math.min(rn, gn, bn);
+                            const delta = maxc - minc;
+                            if (maxc === 0) return 0;
+                            // HSV saturation
+                            return delta / maxc;
+                        }
+                        function smoothstep(edge0, edge1, x) {
+                            const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
+                            return t * t * (3 - 2 * t);
+                        }
+
+                        for (let i = 0; i < data.length; i += 4) {
+                            const r = data[i];
+                            const g = data[i + 1];
+                            const b = data[i + 2];
+                            const a = data[i + 3];
+
+                            const lum = computeLuminance(r, g, b);
+                            const sat = computeSaturation(r, g, b);
+
+                            // Determine background likelihood using luminance and saturation
+                            // Create a feathered alpha near the background threshold to avoid halos
+                            let newAlpha = a;
+                            if (lum >= featherStart && sat <= saturationThreshold) {
+                                // Map luminance to a transparency factor using smoothstep
+                                const t = smoothstep(featherStart, featherEnd, lum);
+                                // Reduce alpha proportionally (more white -> more transparent)
+                                newAlpha = Math.round(a * (1 - t));
+                            }
+                            if (lum >= luminanceThreshold && sat <= saturationThreshold) {
+                                newAlpha = 0;
+                            }
+
+                            data[i + 3] = newAlpha;
+                        }
+
+                        ctx.putImageData(imageData, 0, 0);
+                        resolve(canvas.toDataURL('image/png'));
+                    };
+                    img.onerror = reject;
+                    img.src = event.target.result;
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(imageFile);
+            });
+        }
+
+        function dataURLToUint8Array(dataURL) {
+            const base64 = dataURL.split(',')[1];
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes;
+        }
+
+
+        addSignatureBtn.addEventListener('click', async () => {
+            if (!pdfFile || !imgFile) {
+                statusEl.textContent = 'Please select both a PDF and an image.';
+                return;
+            }
+
+            statusEl.textContent = 'Processing...';
+            addSignatureBtn.disabled = true;
+
+            try {
+                const pdfBytes = await pdfFile.arrayBuffer();
+                const pdfDoc = await PDFDocument.load(pdfBytes);
+                
+                let imgBytes;
+                let isPng = imgFile.type === 'image/png';
+                const removeBgCheckbox = document.getElementById('remove-bg-check');
+
+                if (removeBgCheckbox.checked) {
+                    statusEl.textContent = 'Removing background...';
+                    const processedImageDataURL = await removeWhiteBackground(imgFile);
+                    const bytes = dataURLToUint8Array(processedImageDataURL);
+                    imgBytes = bytes; // Uint8Array
+                    isPng = true; // Output is always PNG to support transparency
+                } else {
+                    // If original is PNG/JPG, read as Uint8Array for consistency
+                    const buf = await imgFile.arrayBuffer();
+                    imgBytes = new Uint8Array(buf);
+                }
+
+                statusEl.textContent = 'Embedding signature...';
+                
+                let signatureImage;
+                if (isPng) {
+                    signatureImage = await pdfDoc.embedPng(imgBytes);
+                } else {
+                    signatureImage = await pdfDoc.embedJpg(imgBytes);
+                }
+                
+                const signatureWidth = 100;
+                const signatureDims = signatureImage.scale(signatureWidth / signatureImage.width);
+
+                const pages = pdfDoc.getPages();
+                const lastPage = pages[pages.length - 1];
+                const { width, height } = lastPage.getSize();
+
+                const padding = 20;
+                lastPage.drawImage(signatureImage, {
+                    x: width - signatureDims.width - padding,
+                    y: padding,
+                    width: signatureDims.width,
+                    height: signatureDims.height,
+                });
+
+                const pdfBytesSigned = await pdfDoc.save();
+
+                const blob = new Blob([pdfBytesSigned], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                const originalName = pdfFile.name.replace(/\.pdf$/i, '');
+                link.download = `${originalName}-signed.pdf`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+                
+                statusEl.textContent = 'Download complete!';
+
+            } catch (error) {
+                console.error(error);
+                statusEl.textContent = 'An error occurred. Please check the console.';
+            } finally {
+                updateButtonState();
+            }
+        });
+        
+        updateButtonState();
+    </script>
+</body>
+</html>
+
