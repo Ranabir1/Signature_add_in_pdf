@@ -60,6 +60,35 @@
                 <input type="checkbox" id="remove-bg-check" class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
                 <label for="remove-bg-check" class="ml-2 block text-sm text-gray-700">Remove white background from signature</label>
             </div>
+            <div id="preview-section" class="mt-4 hidden">
+                <div class="text-sm text-gray-600 mb-2">Live preview (adjust if paper texture remains):</div>
+                <canvas id="preview-canvas" class="w-full border border-gray-200 rounded"></canvas>
+                <div class="mt-3 grid grid-cols-1 gap-3">
+                    <label class="flex items-center justify-between text-sm">
+                        <span>Saturation threshold</span>
+                        <input id="ctl-sat" type="range" min="0" max="1" step="0.01" class="w-48" value="0.22">
+                    </label>
+                    <label class="flex items-center justify-between text-sm">
+                        <span>Feather start</span>
+                        <input id="ctl-feather-start" type="range" min="0.70" max="0.98" step="0.01" class="w-48" value="0.86">
+                    </label>
+                    <label class="flex items-center justify-between text-sm">
+                        <span>Feather end</span>
+                        <input id="ctl-feather-end" type="range" min="0.80" max="1.00" step="0.01" class="w-48" value="0.98">
+                    </label>
+                    <label class="flex items-center justify-between text-sm">
+                        <span>Local window (px)</span>
+                        <input id="ctl-window" type="range" min="3" max="35" step="2" class="w-48" value="17">
+                    </label>
+                    <label class="flex items-center justify-between text-sm">
+                        <span>Keep blue ink boost</span>
+                        <input id="ctl-blue" type="range" min="0" max="1" step="0.05" class="w-48" value="0.5">
+                    </label>
+                </div>
+                <div class="mt-3 flex justify-end">
+                    <button id="btn-update-preview" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-900 px-3 py-1 rounded border">Update Preview</button>
+                </div>
+            </div>
         </div>
 
         <!-- Step 3: Add Signature Button -->
@@ -109,7 +138,7 @@
             updateButtonState();
         });
         
-        async function removeWhiteBackground(imageFile) {
+        async function removeWhiteBackground(imageFile, paramsOverride) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = function(event) {
@@ -124,54 +153,92 @@
                         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                         const data = imageData.data;
 
-                        // Tunable parameters for background detection and feathering
-                        const luminanceThreshold = 0.92; // Consider pixels with high luminance as background candidates
-                        const saturationThreshold = 0.18; // Low saturation likely means near-white background
-                        const featherStart = 0.88; // Start feathering slightly before hard cutoff
-                        const featherEnd = 0.98;   // Fully transparent beyond this whiteness
+                        // Parameters with sensible defaults; can be overridden by preview controls
+                        const params = Object.assign({
+                            saturationThreshold: 0.22,
+                            featherStart: 0.86,
+                            featherEnd: 0.98,
+                            windowRadius: 17,
+                            blueBoost: 0.5
+                        }, paramsOverride || {});
 
-                        // Utility: compute luminance (perceptual) and saturation quickly
                         function computeLuminance(r, g, b) {
-                            // sRGB luminance approximation
                             return (0.2126 * (r / 255)) + (0.7152 * (g / 255)) + (0.0722 * (b / 255));
                         }
-                        function computeSaturation(r, g, b) {
+                        function rgbToHsv(r, g, b) {
                             const rn = r / 255, gn = g / 255, bn = b / 255;
-                            const maxc = Math.max(rn, gn, bn);
-                            const minc = Math.min(rn, gn, bn);
-                            const delta = maxc - minc;
-                            if (maxc === 0) return 0;
-                            // HSV saturation
-                            return delta / maxc;
+                            const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn);
+                            const d = max - min;
+                            let h = 0;
+                            if (d !== 0) {
+                                switch (max) {
+                                    case rn: h = ((gn - bn) / d + (gn < bn ? 6 : 0)); break;
+                                    case gn: h = ((bn - rn) / d + 2); break;
+                                    case bn: h = ((rn - gn) / d + 4); break;
+                                }
+                                h /= 6;
+                            }
+                            const s = max === 0 ? 0 : d / max;
+                            return { h, s, v: max };
                         }
                         function smoothstep(edge0, edge1, x) {
                             const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
                             return t * t * (3 - 2 * t);
                         }
 
-                        for (let i = 0; i < data.length; i += 4) {
-                            const r = data[i];
-                            const g = data[i + 1];
-                            const b = data[i + 2];
-                            const a = data[i + 3];
-
-                            const lum = computeLuminance(r, g, b);
-                            const sat = computeSaturation(r, g, b);
-
-                            // Determine background likelihood using luminance and saturation
-                            // Create a feathered alpha near the background threshold to avoid halos
-                            let newAlpha = a;
-                            if (lum >= featherStart && sat <= saturationThreshold) {
-                                // Map luminance to a transparency factor using smoothstep
-                                const t = smoothstep(featherStart, featherEnd, lum);
-                                // Reduce alpha proportionally (more white -> more transparent)
-                                newAlpha = Math.round(a * (1 - t));
+                        // Build integral image of luminance for fast local mean
+                        const w = canvas.width, h = canvas.height;
+                        const integral = new Float32Array((w + 1) * (h + 1));
+                        function idx(x, y) { return y * (w + 1) + x; }
+                        for (let y = 1; y <= h; y++) {
+                            let rowSum = 0;
+                            for (let x = 1; x <= w; x++) {
+                                const di = ((y - 1) * w + (x - 1)) * 4;
+                                const lum = computeLuminance(data[di], data[di + 1], data[di + 2]);
+                                rowSum += lum;
+                                integral[idx(x, y)] = integral[idx(x, y - 1)] + rowSum;
                             }
-                            if (lum >= luminanceThreshold && sat <= saturationThreshold) {
-                                newAlpha = 0;
-                            }
+                        }
+                        function getMeanLum(x, y, r) {
+                            const x0 = Math.max(1, x - r), y0 = Math.max(1, y - r);
+                            const x1 = Math.min(w, x + r), y1 = Math.min(h, y + r);
+                            const A = integral[idx(x0 - 1, y0 - 1)];
+                            const B = integral[idx(x1, y0 - 1)];
+                            const C = integral[idx(x0 - 1, y1)];
+                            const D = integral[idx(x1, y1)];
+                            const area = (x1 - x0 + 1) * (y1 - y0 + 1);
+                            return (D - B - C + A) / area;
+                        }
 
-                            data[i + 3] = newAlpha;
+                        // Process pixels using local mean, saturation and hue bias for blue ink
+                        for (let y = 0; y < h; y++) {
+                            for (let x = 0; x < w; x++) {
+                                const i = (y * w + x) * 4;
+                                const r = data[i], g = data[i + 1], b = data[i + 2];
+                                const a = data[i + 3];
+                                const hsv = rgbToHsv(r, g, b);
+                                const lum = computeLuminance(r, g, b);
+                                const meanLum = getMeanLum(x + 1, y + 1, params.windowRadius);
+
+                                // How white-like compared to local background
+                                const whiteness = Math.max(0, lum - meanLum + 0.08); // small bias helps textured paper
+                                let t = smoothstep(params.featherStart, params.featherEnd, Math.min(1, meanLum + whiteness));
+
+                                // Reduce transparency if pixel seems like blue ink
+                                const blueHue = hsv.h; // 0..1
+                                const isBlue = (blueHue > 0.55 && blueHue < 0.75) && hsv.s > 0.25;
+                                if (isBlue) {
+                                    t *= (1 - params.blueBoost);
+                                }
+
+                                // Also keep colored/ink pixels with higher saturation
+                                if (hsv.s > params.saturationThreshold) {
+                                    t *= 0.3;
+                                }
+
+                                const newAlpha = Math.round(a * (1 - t));
+                                data[i + 3] = newAlpha;
+                            }
                         }
 
                         ctx.putImageData(imageData, 0, 0);
@@ -196,6 +263,74 @@
             return bytes;
         }
 
+        // Live preview handling
+        const previewSection = document.getElementById('preview-section');
+        const previewCanvas = document.getElementById('preview-canvas');
+        const btnUpdatePreview = document.getElementById('btn-update-preview');
+        const ctlSat = document.getElementById('ctl-sat');
+        const ctlFeatherStart = document.getElementById('ctl-feather-start');
+        const ctlFeatherEnd = document.getElementById('ctl-feather-end');
+        const ctlWindow = document.getElementById('ctl-window');
+        const ctlBlue = document.getElementById('ctl-blue');
+
+        function currentParams() {
+            return {
+                saturationThreshold: parseFloat(ctlSat.value),
+                featherStart: parseFloat(ctlFeatherStart.value),
+                featherEnd: parseFloat(ctlFeatherEnd.value),
+                windowRadius: parseInt(ctlWindow.value, 10),
+                blueBoost: parseFloat(ctlBlue.value)
+            };
+        }
+
+        async function renderPreview() {
+            if (!imgFile) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = async function() {
+                    // Fit preview width to container while keeping aspect
+                    const maxW = 480;
+                    const scale = Math.min(1, maxW / img.width);
+                    previewCanvas.width = Math.round(img.width * scale);
+                    previewCanvas.height = Math.round(img.height * scale);
+                    const ctx = previewCanvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, previewCanvas.width, previewCanvas.height);
+
+                    // Process using same algorithm on scaled canvas
+                    const temp = document.createElement('canvas');
+                    temp.width = previewCanvas.width;
+                    temp.height = previewCanvas.height;
+                    const tctx = temp.getContext('2d');
+                    tctx.drawImage(previewCanvas, 0, 0);
+                    const imageData = tctx.getImageData(0, 0, temp.width, temp.height);
+
+                    // Reuse removal core by serializing to blob and back through removeWhiteBackground
+                    temp.toBlob(async (blob) => {
+                        const processed = await removeWhiteBackground(new File([blob], 'prev.png', { type: 'image/png' }), currentParams());
+                        const previewImg = new Image();
+                        previewImg.onload = function() {
+                            ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+                            ctx.drawImage(previewImg, 0, 0, previewCanvas.width, previewCanvas.height);
+                        };
+                        previewImg.src = processed;
+                    });
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(imgFile);
+        }
+
+        document.getElementById('remove-bg-check').addEventListener('change', (e) => {
+            previewSection.classList.toggle('hidden', !e.target.checked);
+            if (e.target.checked) {
+                renderPreview();
+            }
+        });
+        btnUpdatePreview.addEventListener('click', () => {
+            renderPreview();
+        });
+
 
         addSignatureBtn.addEventListener('click', async () => {
             if (!pdfFile || !imgFile) {
@@ -216,7 +351,7 @@
 
                 if (removeBgCheckbox.checked) {
                     statusEl.textContent = 'Removing background...';
-                    const processedImageDataURL = await removeWhiteBackground(imgFile);
+                    const processedImageDataURL = await removeWhiteBackground(imgFile, currentParams());
                     const bytes = dataURLToUint8Array(processedImageDataURL);
                     imgBytes = bytes; // Uint8Array
                     isPng = true; // Output is always PNG to support transparency
