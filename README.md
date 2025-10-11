@@ -1,0 +1,163 @@
+# PDF Signature Tool
+
+A powerful, client-side web application that allows you to add digital signatures to PDF documents with complete control over placement, size, and positioning.
+
+## Features
+
+### 🖊️ **Signature Management**
+- Upload signature images (JPG, PNG)
+- Automatic white background removal with advanced algorithms
+- Real-time preview with adjustable parameters
+- Support for transparent signatures
+
+### 📄 **PDF Processing**
+- Upload any PDF document
+- Add signatures to specific pages (first, last, or all pages)
+- Download signed PDF instantly
+- No server uploads - everything happens in your browser
+
+### 🎯 **Precise Placement Control**
+- **Corner positioning**: Top-left, top-right, bottom-left, bottom-right
+- **Custom coordinates**: Specify exact pixel positions
+- **Size control**: Adjust width (50-300px) and height (20-200px)
+- **Aspect ratio**: Option to maintain original proportions
+- **Live preview**: See exactly where your signature will appear
+
+### 🎨 **Advanced Background Removal**
+- Intelligent white background detection
+- Adjustable saturation threshold
+- Feathering controls for smooth edges
+- Blue ink boost for better signature preservation
+- Local window analysis for textured paper
+
+## How to Use
+
+### Step 1: Upload PDF
+1. Click "Click to upload a PDF file"
+2. Select your PDF document
+3. The filename will be displayed
+
+### Step 2: Upload Signature
+1. Click "Click to upload an image (JPG, PNG)"
+2. Select your signature image
+3. Optionally check "Remove white background from signature"
+4. If background removal is enabled, adjust the parameters using the live preview
+
+### Step 3: Configure Placement
+1. **Select Page**: Choose which page(s) to sign (first, last, or all)
+2. **Choose Position**: 
+   - Use corner buttons for quick placement
+   - Or enable "Use custom coordinates" for precise positioning
+3. **Adjust Size**: 
+   - Use sliders to set width and height
+   - Enable "Maintain aspect ratio" to keep proportions
+4. **Preview**: See exactly where your signature will appear
+
+### Step 4: Add Signature
+1. Click "Add Signature & Download"
+2. Your signed PDF will download automatically
+
+## Technical Details
+
+### Technologies Used
+- **HTML5**: Modern semantic markup
+- **CSS3**: Tailwind CSS for responsive design
+- **JavaScript**: Vanilla JS for optimal performance
+- **PDF-lib**: Client-side PDF manipulation
+- **Canvas API**: Image processing and background removal
+
+### Browser Compatibility
+- Chrome 60+
+- Firefox 55+
+- Safari 11+
+- Edge 79+
+
+### File Size Limits
+- PDF files: Up to 50MB (browser dependent)
+- Image files: Up to 10MB recommended
+
+## Background Removal Algorithm
+
+The tool uses an advanced algorithm to remove white backgrounds:
+
+1. **Luminance Analysis**: Calculates pixel brightness
+2. **Local Mean Comparison**: Compares each pixel to its local neighborhood
+3. **Saturation Filtering**: Preserves colored ink while removing white
+4. **Blue Ink Boost**: Special handling for blue ink signatures
+5. **Feathering**: Smooth transitions for natural-looking edges
+
+### Adjustable Parameters
+- **Saturation Threshold**: How much color to preserve
+- **Feather Start/End**: Transition zone boundaries
+- **Local Window**: Neighborhood size for analysis
+- **Blue Ink Boost**: Special treatment for blue signatures
+
+## Privacy & Security
+
+- **100% Client-side**: No files are uploaded to any server
+- **Local Processing**: All operations happen in your browser
+- **No Data Collection**: No personal information is stored or transmitted
+- **Secure**: Your documents never leave your device
+
+## Installation
+
+No installation required! Simply:
+
+1. Download the `index.html` file
+2. Open it in any modern web browser
+3. Start signing PDFs immediately
+
+## File Structure
+
+```
+Signature_add_in_pdf/
+├── index.html          # Main application file
+└── README.md          # This documentation
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**"Please select both a PDF and an image"**
+- Ensure both files are selected before clicking "Add Signature & Download"
+
+**Signature appears too small/large**
+- Use the size controls in Step 3 to adjust width and height
+- Enable "Maintain aspect ratio" for proportional scaling
+
+**Background removal not working well**
+- Adjust the saturation threshold (try values between 0.15-0.35)
+- Modify feather start/end values (try 0.80-0.95)
+- Increase local window size for textured paper
+
+**PDF download not starting**
+- Check if your browser blocks pop-ups
+- Ensure you have sufficient disk space
+- Try a different browser if issues persist
+
+### Performance Tips
+
+- Use PNG images for signatures with transparency
+- Keep PDF file sizes under 20MB for best performance
+- Use JPG for signatures without transparency needs
+- Close other browser tabs if processing large files
+
+## Contributing
+
+This is a standalone tool, but suggestions and improvements are welcome!
+
+## License
+
+This project is open source and available under the MIT License.
+
+## Support
+
+For issues or questions:
+1. Check the troubleshooting section above
+2. Ensure you're using a supported browser
+3. Try with smaller files to test functionality
+
+---
+
+**Made with ❤️ for easy PDF signing**
