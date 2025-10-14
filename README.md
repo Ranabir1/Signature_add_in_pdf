@@ -1,6 +1,6 @@
-# PDF Signature Tool
+# PDF Signature & Editor Tool
 
-A powerful, client-side web application that allows you to add digital signatures to PDF documents with complete control over placement, size, and positioning.
+A powerful, client-side web application that allows you to add digital signatures to PDF documents and edit PDFs visually (draw, shapes, text, images), plus split and merge PDFs — all locally in your browser.
 
 ## Features
 
@@ -15,6 +15,19 @@ A powerful, client-side web application that allows you to add digital signature
 - Add signatures to specific pages (first, last, or all pages)
 - Download signed PDF instantly
 - No server uploads - everything happens in your browser
+
+### ✏️ **PDF Editor (New)**
+- Open `PDF Editor` from the top-right link on the main page
+- Tools: Select, Draw, Text, Image, Rectangle, Ellipse, Arrow, Highlighter
+- Opacity control for all items and strokes
+- Move/resize items, bring forward / send backward
+- Undo / Redo, Clear current page
+- Keyboard shortcuts: Delete to remove, Ctrl+D to duplicate
+- Export your edits into a new PDF
+
+### 🧩 **Split & Merge (New)**
+- Split current PDF by page range (e.g., `1-3,5`) and download the extracted pages
+- Merge multiple selected PDFs into a single document
 
 ### 🎯 **Precise Placement Control**
 - **Corner positioning**: Top-left, top-right, bottom-left, bottom-right
@@ -57,6 +70,27 @@ A powerful, client-side web application that allows you to add digital signature
 1. Click "Add Signature & Download"
 2. Your signed PDF will download automatically
 
+## PDF Editor Usage
+
+1. Open `index.html` in your browser and click `Open PDF Editor`.
+2. Click `Open PDF` and choose a PDF.
+3. Choose a tool and edit directly on page canvases:
+   - Draw: freehand drawing with stroke width, color, opacity
+   - Text: enter text, set size, color, opacity; drag to move, resize by dragging
+   - Image: place a local image; drag/resize; opacity supported
+   - Rect / Ellipse / Arrow / Highlighter: click-drag to create shapes; opacity supported
+4. Use `Undo`, `Redo`, `Bring ↑`, `Send ↓`, and `Clear page` in the left panel.
+5. Click `Download Edited PDF` to export your changes.
+
+### Split PDF
+1. With a PDF opened in the editor, click `Split`.
+2. Enter a range like `1-3,5` and confirm.
+3. The selected pages download as `split.pdf`.
+
+### Merge PDFs
+1. Click `Merge` and pick multiple PDF files (use Ctrl/Shift select).
+2. The files are merged in the order selected and download as `merged.pdf`.
+
 ## Technical Details
 
 ### Technologies Used
@@ -65,6 +99,7 @@ A powerful, client-side web application that allows you to add digital signature
 - **JavaScript**: Vanilla JS for optimal performance
 - **PDF-lib**: Client-side PDF manipulation
 - **Canvas API**: Image processing and background removal
+ - **PDF.js**: High-fidelity PDF rendering for the editor
 
 ### Browser Compatibility
 - Chrome 60+
@@ -111,8 +146,9 @@ No installation required! Simply:
 
 ```
 Signature_add_in_pdf/
-├── index.html          # Main application file
-└── README.md          # This documentation
+├── index.html          # Signature tool (upload PDF + image signature)
+├── editor.html         # Visual PDF editor (draw/text/image/shapes, split/merge)
+└── README.md           # This documentation
 ```
 
 ## Troubleshooting
@@ -135,6 +171,14 @@ Signature_add_in_pdf/
 - Check if your browser blocks pop-ups
 - Ensure you have sufficient disk space
 - Try a different browser if issues persist
+
+**Error: attempting to access detached ArrayBuffer (Split/Download)**
+- Reload the page and open the PDF again; the app keeps a persistent copy internally
+- Make sure to use the `Open PDF` button before `Split`
+
+**PDF rendering not visible (Editor)**
+- Ensure internet access for the CDN of PDF.js
+- If using offline environment, replace CDN with a local `pdf.min.js` and `pdf.worker.min.js`
 
 ### Performance Tips
 
