@@ -29,6 +29,15 @@ A powerful, client-side web application that allows you to add digital signature
 - Split current PDF by page range (e.g., `1-3,5`) and download the extracted pages
 - Merge multiple selected PDFs into a single document
 
+### ⚙️ **Advanced Tools (New)**
+- Open `Advanced Tools` from the top-right link on the main page
+- Page manager: drag-and-drop reorder, rotate (±90°), delete pages
+- Conversions:
+  - Images → PDF (each image becomes a full page)
+  - PDF → Images (PNG per page, downloaded as a ZIP)
+  - DOCX → PDF (client-side, basic text/image rendering)
+- 100% client-side using your browser; suitable for offline use when CDNs are mirrored locally
+
 ### 🎯 **Precise Placement Control**
 - **Corner positioning**: Top-left, top-right, bottom-left, bottom-right
 - **Custom coordinates**: Specify exact pixel positions
@@ -91,6 +100,20 @@ A powerful, client-side web application that allows you to add digital signature
 1. Click `Merge` and pick multiple PDF files (use Ctrl/Shift select).
 2. The files are merged in the order selected and download as `merged.pdf`.
 
+## Advanced Tools Usage
+
+1. Open `index.html` and click `Advanced Tools` (or open `advanced.html` directly).
+2. Page manager:
+   - Click `Open PDF` to load a document.
+   - Click thumbnails to select pages; use `Rotate ⟲/⟳` or `Delete`.
+   - Reorder by dragging thumbnails; click `Download` to export.
+3. Conversions:
+   - Images → PDF: select multiple images, click `Create PDF`.
+   - PDF → Images (ZIP): choose a PDF, click `Convert` to download a ZIP of PNGs.
+   - DOCX → PDF: choose a `.docx`, click `Convert` (basic text/image layout supported).
+
+> Note: DOCX conversion is simplified for client-side use; complex layouts (tables, headers/footers, columns) may render differently.
+
 ## Technical Details
 
 ### Technologies Used
@@ -99,7 +122,9 @@ A powerful, client-side web application that allows you to add digital signature
 - **JavaScript**: Vanilla JS for optimal performance
 - **PDF-lib**: Client-side PDF manipulation
 - **Canvas API**: Image processing and background removal
- - **PDF.js**: High-fidelity PDF rendering for the editor
+- **PDF.js**: High-fidelity PDF rendering for the editor and thumbnails
+- **JSZip**: Zipping rendered images for PDF → Images conversion
+- **FileSaver**: Save ZIPs and generated files client-side
 
 ### Browser Compatibility
 - Chrome 60+
@@ -138,9 +163,9 @@ The tool uses an advanced algorithm to remove white backgrounds:
 
 No installation required! Simply:
 
-1. Download the `index.html` file
+1. Download the repository or the `index.html` entry page
 2. Open it in any modern web browser
-3. Start signing PDFs immediately
+3. Use links to access `PDF Editor` and `Advanced Tools`
 
 ## File Structure
 
@@ -148,6 +173,7 @@ No installation required! Simply:
 Signature_add_in_pdf/
 ├── index.html          # Signature tool (upload PDF + image signature)
 ├── editor.html         # Visual PDF editor (draw/text/image/shapes, split/merge)
+├── advanced.html       # Advanced page manager + conversions (images↔PDF, DOCX→PDF)
 └── README.md           # This documentation
 ```
 
@@ -176,9 +202,9 @@ Signature_add_in_pdf/
 - Reload the page and open the PDF again; the app keeps a persistent copy internally
 - Make sure to use the `Open PDF` button before `Split`
 
-**PDF rendering not visible (Editor)**
+**PDF rendering not visible (Editor/Advanced)**
 - Ensure internet access for the CDN of PDF.js
-- If using offline environment, replace CDN with a local `pdf.min.js` and `pdf.worker.min.js`
+- If using offline environment, replace CDN with local copies of `pdf.min.js` and `pdf.worker.min.js`
 
 ### Performance Tips
 
@@ -204,4 +230,4 @@ For issues or questions:
 
 ---
 
-**Made with ❤️ for easy PDF signing**
+**Made with ❤️ for easy PDF signing & editing**
