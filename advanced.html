@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Advanced PDF Tools</title>
+	<script src="https://cdn.tailwindcss.com"></script>
+	<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+	<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+	<style>
+		body { font-family: 'Inter', sans-serif; }
+		.page-thumb { position: relative; }
+		.thumb-overlay { position: absolute; inset: 0; display: none; background: rgba(0,0,0,0.4); align-items: center; justify-content: center; color: white; font-weight: 600; }
+		.page-thumb.dragging { opacity: 0.6; }
+		.page-thumb.drag-over { outline: 2px dashed #3B82F6; outline-offset: 4px; }
+	</style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+	<div class="max-w-7xl mx-auto p-4">
+		<div class="flex items-center justify-between mb-4">
+			<div class="flex items-center gap-2">
+				<a href="index.html" class="text-sm px-3 py-1 rounded border border-gray-300 hover:bg-gray-50">Back</a>
+				<h1 class="text-2xl font-bold text-gray-800">Advanced PDF Tools</h1>
+			</div>
+			<div class="flex items-center gap-2">
+				<input id="pdf-file" type="file" accept="application/pdf" class="hidden" aria-label="Open PDF file">
+				<button id="btn-open" class="px-3 py-2 border rounded bg-white hover:bg-gray-50">Open PDF</button>
+				<button id="btn-download" class="px-3 py-2 border rounded bg-blue-600 text-white hover:bg-blue-700" disabled>Download</button>
+			</div>
+		</div>
+
+		<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+			<!-- Page Manager -->
+			<div class="lg:col-span-2 bg-white border rounded p-4">
+				<div class="flex items-center justify-between mb-3">
+					<div class="font-semibold text-gray-700">Pages</div>
+					<div class="flex gap-2">
+						<button id="btn-rotate-left" class="px-3 py-1 border rounded">Rotate ⟲</button>
+						<button id="btn-rotate-right" class="px-3 py-1 border rounded">Rotate ⟳</button>
+						<button id="btn-delete" class="px-3 py-1 border rounded text-red-600">Delete</button>
+					</div>
+				</div>
+				<div id="pages" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3"></div>
+			</div>
+
+			<!-- Conversions -->
+			<div class="bg-white border rounded p-4 h-fit sticky top-4">
+				<div class="font-semibold text-gray-700 mb-2">Conversions</div>
+				<div class="space-y-4">
+					<div>
+						<div class="text-sm font-medium mb-1">Images → PDF</div>
+						<input id="images-input" type="file" accept="image/*" multiple class="block w-full text-sm" aria-label="Select images to convert to PDF">
+						<button id="btn-images-to-pdf" class="mt-2 px-3 py-1 border rounded w-full">Create PDF</button>
+					</div>
+					<div>
+						<div class="text-sm font-medium mb-1">PDF → Images (ZIP)</div>
+						<input id="pdf-to-images-input" type="file" accept="application/pdf" class="block w-full text-sm" aria-label="Select PDF to convert to images">
+						<button id="btn-pdf-to-images" class="mt-2 px-3 py-1 border rounded w-full">Convert</button>
+					</div>
+					<div>
+						<div class="text-sm font-medium mb-1">DOCX → PDF (client-side)</div>
+						<input id="docx-input" type="file" accept=".doc,.docx" class="block w-full text-sm" aria-label="Select DOCX to convert to PDF">
+						<button id="btn-docx-to-pdf" class="mt-2 px-3 py-1 border rounded w-full">Convert</button>
+						<p class="text-xs text-gray-500 mt-1">Note: Converts text and images using HTML rendering; complex layouts may vary.</p>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<p id="status" class="text-sm text-gray-600 mt-4"></p>
+	</div>
+
+	<script>
+		const { PDFDocument, StandardFonts, rgb } = PDFLib;
+		if (window['pdfjsLib']) {
+			pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+		}
+
+		const openBtn = document.getElementById('btn-open');
+		const downloadBtn = document.getElementById('btn-download');
+		const fileInput = document.getElementById('pdf-file');
+		const pagesGrid = document.getElementById('pages');
+		const statusEl = document.getElementById('status');
+		const rotateLeftBtn = document.getElementById('btn-rotate-left');
+		const rotateRightBtn = document.getElementById('btn-rotate-right');
+		const deleteBtn = document.getElementById('btn-delete');
+
+		let pdfBytes = null; // original
+		let pdfProxy = null;
+		let pageOrder = []; // indices
+		let pageRotations = {}; // index -> rotation in degrees
+		let selected = new Set();
+
+		openBtn.addEventListener('click', () => fileInput.click());
+		fileInput.addEventListener('change', async (e) => {
+			const file = e.target.files[0];
+			if (!file) return;
+			status('Loading...');
+			const buf = await file.arrayBuffer();
+			pdfBytes = new Uint8Array(buf);
+			await loadThumbnails(pdfBytes.slice().buffer);
+			downloadBtn.disabled = false;
+			status('');
+		});
+
+		async function loadThumbnails(buf){
+			pagesGrid.innerHTML = '';
+			pageOrder = []; pageRotations = {}; selected.clear();
+			const loadingTask = pdfjsLib.getDocument({ data: buf });
+			pdfProxy = await loadingTask.promise;
+			for (let i = 1; i <= pdfProxy.numPages; i++) {
+				const page = await pdfProxy.getPage(i);
+				const viewport = page.getViewport({ scale: 0.35 });
+				const canvas = document.createElement('canvas');
+				canvas.width = viewport.width; canvas.height = viewport.height;
+				await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+
+				const wrapper = document.createElement('div');
+				wrapper.className = 'page-thumb bg-white rounded border p-2 cursor-move select-none';
+				wrapper.draggable = true; wrapper.dataset.index = i - 1;
+				wrapper.innerHTML = `
+					<div class="text-xs text-gray-500 mb-1">Page ${i}</div>
+				`;
+				wrapper.appendChild(canvas);
+
+				wrapper.addEventListener('click', () => toggleSelect(wrapper));
+				addDnDHandlers(wrapper);
+
+				pagesGrid.appendChild(wrapper);
+				pageOrder.push(i - 1);
+			}
+		}
+
+		function toggleSelect(el){
+			const idx = parseInt(el.dataset.index, 10);
+			if (selected.has(idx)) {
+				selected.delete(idx);
+				el.classList.remove('ring-2','ring-blue-500');
+			} else {
+				selected.add(idx);
+				el.classList.add('ring-2','ring-blue-500');
+			}
+		}
+
+		function addDnDHandlers(el){
+			el.addEventListener('dragstart', (e)=>{
+				el.classList.add('dragging');
+				e.dataTransfer.effectAllowed = 'move';
+				e.dataTransfer.setData('text/plain', el.dataset.index);
+			});
+			el.addEventListener('dragover', (e)=>{ e.preventDefault(); el.classList.add('drag-over'); });
+			el.addEventListener('dragleave', ()=> el.classList.remove('drag-over'));
+			el.addEventListener('drop', (e)=>{
+				e.preventDefault(); el.classList.remove('drag-over');
+				const from = parseInt(e.dataTransfer.getData('text/plain'),10);
+				const to = parseInt(el.dataset.index,10);
+				reorder(from, to);
+			});
+			el.addEventListener('dragend', ()=> el.classList.remove('dragging'));
+		}
+
+		function reorder(from, to){
+			if (from === to) return;
+			const fromPos = pageOrder.indexOf(from);
+			const toPos = pageOrder.indexOf(to);
+			if (fromPos === -1 || toPos === -1) return;
+			const [moved] = pageOrder.splice(fromPos, 1);
+			pageOrder.splice(toPos, 0, moved);
+			// Re-render DOM order
+			const nodes = Array.from(pagesGrid.children).sort((a,b)=> pageOrder.indexOf(parseInt(a.dataset.index,10)) - pageOrder.indexOf(parseInt(b.dataset.index,10)));
+			nodes.forEach(n=> pagesGrid.appendChild(n));
+		}
+
+		rotateLeftBtn.addEventListener('click', ()=> rotateSelected(-90));
+		rotateRightBtn.addEventListener('click', ()=> rotateSelected(90));
+		deleteBtn.addEventListener('click', ()=> deleteSelected());
+
+		function rotateSelected(delta){
+			if (selected.size === 0) return alert('Select page(s) first');
+			selected.forEach(idx => {
+				pageRotations[idx] = ((pageRotations[idx] || 0) + delta + 360) % 360;
+			});
+			status('Rotation set. Download to apply.');
+		}
+
+		function deleteSelected(){
+			if (selected.size === 0) return alert('Select page(s) first');
+			pageOrder = pageOrder.filter(idx => !selected.has(idx));
+			Array.from(pagesGrid.children).forEach(ch => { if (!pageOrder.includes(parseInt(ch.dataset.index,10))) ch.remove(); });
+			selected.clear();
+		}
+
+		downloadBtn.addEventListener('click', async ()=>{
+			if (!pdfBytes) return;
+			status('Building PDF...');
+			const src = await PDFDocument.load(pdfBytes);
+			const out = await PDFDocument.create();
+			const indices = pageOrder.length ? pageOrder : src.getPageIndices();
+			const copied = await out.copyPages(src, indices);
+			copied.forEach((p, i) => {
+				const srcIndex = indices[i];
+				const rot = pageRotations[srcIndex] || 0;
+				if (rot !== 0) p.setRotation(PDFLib.degrees(rot));
+				out.addPage(p);
+			});
+			const bytes = await out.save();
+			downloadBlob(bytes, 'advanced-edited.pdf');
+			status('');
+		});
+
+		// Images -> PDF
+		document.getElementById('btn-images-to-pdf').addEventListener('click', async ()=>{
+			const files = Array.from(document.getElementById('images-input').files || []);
+			if (files.length === 0) return alert('Select images');
+			status('Creating PDF from images...');
+			const doc = await PDFDocument.create();
+			for (const f of files){
+				const ab = await f.arrayBuffer();
+				let img; let dims;
+				try { img = await doc.embedPng(ab); dims = { width: img.width, height: img.height }; }
+				catch { img = await doc.embedJpg(ab); dims = { width: img.width, height: img.height }; }
+				const page = doc.addPage([dims.width, dims.height]);
+				page.drawImage(img, { x: 0, y: 0, width: dims.width, height: dims.height });
+			}
+			const bytes = await doc.save();
+			downloadBlob(bytes, 'images.pdf');
+			status('');
+		});
+
+		// PDF -> images zip
+		document.getElementById('btn-pdf-to-images').addEventListener('click', async ()=>{
+			const f = document.getElementById('pdf-to-images-input').files[0];
+			if (!f) return alert('Select a PDF');
+			status('Rendering pages to images...');
+			const buf = await f.arrayBuffer();
+			const loadingTask = pdfjsLib.getDocument({ data: buf });
+			const proxy = await loadingTask.promise;
+			const zip = new JSZip();
+			for (let i = 1; i <= proxy.numPages; i++){
+				const page = await proxy.getPage(i);
+				const viewport = page.getViewport({ scale: 2 });
+				const canvas = document.createElement('canvas');
+				canvas.width = viewport.width; canvas.height = viewport.height;
+				await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+				const blob = await new Promise(res=> canvas.toBlob(res, 'image/png'));
+				const arrBuf = await blob.arrayBuffer();
+				zip.file(`page-${i}.png`, arrBuf);
+			}
+			const zipBlob = await zip.generateAsync({ type: 'blob' });
+			saveAs(zipBlob, 'pages.zip');
+			status('');
+		});
+
+		// DOCX -> PDF (basic)
+		document.getElementById('btn-docx-to-pdf').addEventListener('click', async ()=>{
+			const f = document.getElementById('docx-input').files[0];
+			if (!f) return alert('Select a .docx');
+			status('Converting DOCX...');
+			const text = await extractDocxText(f);
+			const doc = await PDFDocument.create();
+			const font = await doc.embedFont(StandardFonts.Helvetica);
+			const page = doc.addPage([595.28, 841.89]); // A4
+			const margin = 40; const maxWidth = page.getWidth() - margin * 2; const lineHeight = 18;
+			const paragraphs = text.split(/\n\s*\n/);
+			let x = margin; let y = page.getHeight() - margin;
+			page.setFont(font); page.setFontSize(12);
+			for (const para of paragraphs){
+				const words = para.split(/\s+/);
+				let line = '';
+				for (const w of words){
+					const test = line ? line + ' ' + w : w;
+					const width = font.widthOfTextAtSize(test, 12);
+					if (width > maxWidth){
+						page.drawText(line, { x, y });
+						y -= lineHeight;
+						if (y < margin){ y = page.getHeight() - margin; }
+						line = w;
+					} else {
+						line = test;
+					}
+				}
+				if (line){ page.drawText(line, { x, y }); y -= lineHeight; if (y < margin){ y = page.getHeight() - margin; } }
+			}
+			const bytes = await doc.save();
+			downloadBlob(bytes, 'document.pdf');
+			status('');
+		});
+
+		async function extractDocxText(file){
+			// Minimal client-side text extraction using docx as zip
+			const zip = await JSZip.loadAsync(file);
+			const docXml = await zip.file('word/document.xml').async('string');
+			// Strip tags and keep line breaks for paragraphs
+			const plain = docXml
+				.replace(/<w:p[^>]*>/g, '\n')
+				.replace(/<\/(w:p|w:tbl)>/g, '\n')
+				.replace(/<w:br\b[^>]*\/>/g, '\n')
+				.replace(/<[^>]+>/g, '')
+				.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+				.replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+				.trim();
+			return plain;
+		}
+
+		function status(msg){ statusEl.textContent = msg; }
+
+		function downloadBlob(bytes, name){
+			const blob = new Blob([bytes], { type: 'application/pdf' });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+		}
+	</script>
+</body>
+</html>
